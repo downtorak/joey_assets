@@ -1,4 +1,3 @@
-import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -408,7 +407,6 @@ class RealTimePage extends StatefulWidget {
 }
 
 class _RealTimePageState extends State<RealTimePage> {
-  List<PieChartSectionData> chartDataList = [];
   List<DataRow> cashDataList = [];
   List<DataRow> tableDataList = [];
 
@@ -426,99 +424,92 @@ class _RealTimePageState extends State<RealTimePage> {
         ),
         drawer: const NavigationDrawer(),
         body: ListView(children: [
-          SizedBox(
-              height: 300,
-              child: AspectRatio(
-                  aspectRatio: 1,
-                  child: PieChart(PieChartData(
-                    sections: chartDataList,
-                  )))),
-          DataTable(columns: const [
-            DataColumn(label: Text('현금')),
-            DataColumn(label: Text('현금목표비중')),
-            DataColumn(label: Text('현금비중')),
-            DataColumn(label: Text('총평가')),
-          ], rows: cashDataList),
-          DataTable(columns: const [
-            DataColumn(label: Text('종목')),
-            DataColumn(label: Text('평가금액')),
-            DataColumn(label: Text('매수금액')),
-            DataColumn(label: Text('손익')),
-            DataColumn(label: Text('목표비중')),
-            DataColumn(label: Text('평가비중')),
-            DataColumn(label: Text('매수비중')),
-          ], rows: tableDataList),
+          DataTable(
+              columnSpacing: 10,
+              columns: const [
+                DataColumn(label: DataColumnLabel(text: '현금')),
+                DataColumn(label: DataColumnLabel(text: '현금목표비중')),
+                DataColumn(label: DataColumnLabel(text: '현금비중')),
+                DataColumn(label: DataColumnLabel(text: '총평가')),
+              ],
+              rows: cashDataList),
+          DataTable(
+              columnSpacing: 5,
+              columns: const [
+                DataColumn(label: DataColumnLabel(text: '종목')),
+                DataColumn(label: DataColumnLabel(text: '평가금액')),
+                DataColumn(label: DataColumnLabel(text: '매수금액')),
+                DataColumn(label: DataColumnLabel(text: '손익')),
+                DataColumn(label: DataColumnLabel(text: '목표비중')),
+                DataColumn(label: DataColumnLabel(text: '평가비중')),
+                DataColumn(label: DataColumnLabel(text: '매수비중')),
+              ],
+              rows: tableDataList),
         ]),
       );
 
   void _update() async {
     final prefs = await SharedPreferences.getInstance();
-    List<PieChartSectionData> chartDataList = [];
-    List<DataRow> cashRowList = [];
+    List<DataRow> cashDataList = [];
     List<DataRow> tableRowList = [];
 
     int cash = prefs.getInt('cash') ?? 0;
-    chartDataList.add(PieChartSectionData(
-      color: stringToBrightColor('현금'),
-      value: cash.toDouble(),
-      title: '현금',
-    ));
+
+    List<String> stockJsonList = prefs.getStringList('stocks') ?? [];
+    List<Future<StockTableData>> futureList = [];
+    for (String stockJson in stockJsonList) {
+      StockData stock = StockData.fromJson(jsonDecode(stockJson));
+      futureList.add(_generateStockTableData(stock));
+    }
+    List<StockTableData> tableDataList = await Future.wait(futureList);
 
     int totalValue = cash, totalBuy = cash;
     double totalWeight = 0;
-    List<String> stockJsonList = prefs.getStringList('stocks') ?? [];
-    List<StockTableData> tableDataList = [];
-    for (String stockJson in stockJsonList) {
-      StockData stock = StockData.fromJson(jsonDecode(stockJson));
-      int curPrice = await fetchStockPrice(stock.code);
-      int valueAmount = curPrice * stock.quantity;
-      int buyAmount = stock.price * stock.quantity;
-
-      chartDataList.add(PieChartSectionData(
-        color: stringToBrightColor(stock.name),
-        value: valueAmount.toDouble(),
-        title: stock.name,
-      ));
-
-      tableDataList.add(StockTableData(
-          name: stock.name,
-          valueAmount: valueAmount,
-          buyAmount: buyAmount,
-          targetRatio: stock.weight));
-
-      totalValue += valueAmount;
-      totalBuy += buyAmount;
-      totalWeight += stock.weight;
+    for (StockTableData tableData in tableDataList) {
+      totalValue += tableData.valueAmount;
+      totalBuy += tableData.buyAmount;
+      totalWeight += tableData.targetWeight;
     }
 
-    cashRowList.add(DataRow(cells: [
-      DataCell(Text(cashIntToString(cash))),
-      DataCell(Text('${(100 - totalWeight).toStringAsFixed(2)}%')),
-      DataCell(Text('${(cash / totalValue * 100).toStringAsFixed(2)}%')),
-      DataCell(Text(cashIntToString(totalValue))),
+    cashDataList.add(DataRow(cells: [
+      DataCell(DataCellText(text: cashIntToString(cash))),
+      DataCell(DataCellText(text: weightToString(100 - totalWeight))),
+      DataCell(DataCellText(text: weightToString(cash / totalValue * 100))),
+      DataCell(DataCellText(text: cashIntToString(totalValue))),
     ]));
 
     for (StockTableData tableData in tableDataList) {
-      tableData.valueRatio = tableData.valueAmount / totalValue * 100;
-      tableData.buyRatio = tableData.buyAmount / totalBuy * 100;
+      tableData.valueWeight = tableData.valueAmount / totalValue * 100;
+      tableData.buyWeight = tableData.buyAmount / totalBuy * 100;
+      int profit = tableData.valueAmount - tableData.buyAmount;
 
       tableRowList.add(DataRow(cells: [
-        DataCell(Text(tableData.name)),
-        DataCell(Text(cashIntToString(tableData.valueAmount))),
-        DataCell(Text(cashIntToString(tableData.buyAmount))),
-        DataCell(Text(
-            profitIntToString(tableData.valueAmount - tableData.buyAmount))),
-        DataCell(Text('${tableData.targetRatio.toStringAsFixed(2)}%')),
-        DataCell(Text('${tableData.valueRatio.toStringAsFixed(2)}%')),
-        DataCell(Text('${tableData.buyRatio.toStringAsFixed(2)}%')),
+        DataCell(DataCellText(text: tableData.name)),
+        DataCell(DataCellText(text: cashIntToString(tableData.valueAmount))),
+        DataCell(DataCellText(text: cashIntToString(tableData.buyAmount))),
+        DataCell(DataCellText(text: profitIntToString(profit))),
+        DataCell(DataCellText(text: weightToString(tableData.targetWeight))),
+        DataCell(DataCellText(text: weightToString(tableData.valueWeight))),
+        DataCell(DataCellText(text: weightToString(tableData.buyWeight))),
       ]));
     }
 
     setState(() {
-      this.chartDataList = chartDataList;
-      this.cashDataList = cashRowList;
+      this.cashDataList = cashDataList;
       this.tableDataList = tableRowList;
     });
+  }
+
+  Future<StockTableData> _generateStockTableData(StockData stock) async {
+    int curPrice = await fetchStockPrice(stock.code);
+    int valueAmount = curPrice * stock.quantity;
+    int buyAmount = stock.price * stock.quantity;
+
+    return StockTableData(
+        name: stock.name,
+        valueAmount: valueAmount,
+        buyAmount: buyAmount,
+        targetWeight: stock.weight);
   }
 }
 
@@ -526,17 +517,51 @@ class StockTableData {
   String name;
   int valueAmount;
   int buyAmount;
-  double targetRatio;
-  double valueRatio;
-  double buyRatio;
+  double targetWeight;
+  double valueWeight;
+  double buyWeight;
 
   StockTableData(
       {required this.name,
       required this.valueAmount,
       required this.buyAmount,
-      required this.targetRatio,
-      this.valueRatio = 0,
-      this.buyRatio = 0});
+      required this.targetWeight,
+      this.valueWeight = 0,
+      this.buyWeight = 0});
+}
+
+class DataColumnLabel extends StatelessWidget {
+  final String text;
+
+  const DataColumnLabel({super.key, required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Flexible(
+        child: FittedBox(
+            fit: BoxFit.fitWidth,
+            child: Text(
+              text,
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            )));
+  }
+}
+
+class DataCellText extends StatelessWidget {
+  final String text;
+  final TextAlign? align;
+  const DataCellText({super.key, required this.text, this.align});
+
+  @override
+  Widget build(BuildContext context) {
+    return FittedBox(
+        fit: BoxFit.fitWidth,
+        alignment: Alignment.centerRight,
+        child: Text(
+          text,
+          textAlign: TextAlign.right,
+        ));
+  }
 }
 
 class GraphPage extends StatelessWidget {
@@ -595,8 +620,12 @@ Future<String> fetchStockCode(String name) async {
 }
 
 Future<int> fetchStockPrice(String code) async {
+  DateTime now = DateTime.now();
+  DateTime sixDaysAgo = now.subtract(const Duration(days: 60));
+  String startTime = dateTimeToString(sixDaysAgo);
+  String endTime = dateTimeToString(now);
   final resp = await http.get(Uri.parse(
-      'https://api.finance.naver.com/siseJson.naver?symbol=$code&requestType=1&timeframe=day&startTime=20230710&endTime=20230716'));
+      'https://api.finance.naver.com/siseJson.naver?symbol=$code&requestType=1&timeframe=day&startTime=$startTime&endTime=$endTime'));
 
   if (resp.statusCode == 200) {
     List<dynamic> siseList = jsonDecode(resp.body.replaceAll("'", '"'));
@@ -607,6 +636,13 @@ Future<int> fetchStockPrice(String code) async {
   } else {
     throw Exception('Fail to load stock price.');
   }
+}
+
+String dateTimeToString(DateTime dateTime) {
+  String y = dateTime.year.toString().padLeft(4, '0');
+  String m = dateTime.month.toString().padLeft(2, '0');
+  String d = dateTime.day.toString().padLeft(2, '0');
+  return '$y$m$d';
 }
 
 String cashIntToString(int cash) {
@@ -627,6 +663,10 @@ String profitIntToString(int profit) {
     profit *= -1;
   }
   return '$sign${cashIntToString(profit)}';
+}
+
+String weightToString(double weight) {
+  return '${weight.toStringAsFixed(2)}%';
 }
 
 Color stringToBrightColor(String str) {
